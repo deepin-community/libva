@@ -23,6 +23,9 @@
 
 #define _GNU_SOURCE 1
 #include "sysdeps.h"
+
+#ifdef HAVE_NVCTRL
+
 #include <string.h>
 
 #define NEED_REPLIES
@@ -130,7 +133,8 @@ static /* const */ char *nvctrl_extension_name = NV_CONTROL_NAME;
 #define XNVCTRLSimpleCheckExtension(dpy,i) \
   XextSimpleCheckExtension (dpy, i, nvctrl_extension_name)
 
-static int close_display();
+static XEXT_GENERATE_CLOSE_DISPLAY(close_display, nvctrl_ext_info)
+
 static /* const */ XExtensionHooks nvctrl_extension_hooks = {
     NULL,                               /* create_gc */
     NULL,                               /* copy_gc */
@@ -149,8 +153,6 @@ static XEXT_GENERATE_FIND_DISPLAY(find_display, nvctrl_ext_info,
                                   nvctrl_extension_name,
                                   &nvctrl_extension_hooks,
                                   NV_CONTROL_EVENTS, NVCTRL_EXT_NEED_CHECK)
-
-static XEXT_GENERATE_CLOSE_DISPLAY(close_display, nvctrl_ext_info)
 
 static Bool XNVCTRLQueryVersion(Display *dpy, int *major, int *minor);
 
@@ -341,7 +343,7 @@ static Bool XNVCTRLQueryStringAttribute(
 }
 
 
-Bool VA_NVCTRLQueryDirectRenderingCapable(Display *dpy, int screen,
+static Bool VA_NVCTRLQueryDirectRenderingCapable(Display *dpy, int screen,
         Bool *isCapable)
 {
     int event_base;
@@ -359,9 +361,9 @@ Bool VA_NVCTRLQueryDirectRenderingCapable(Display *dpy, int screen,
     return True;
 }
 
-Bool VA_NVCTRLGetClientDriverName(Display *dpy, int screen,
-                                  int *ddxDriverMajorVersion, int *ddxDriverMinorVersion,
-                                  int *ddxDriverPatchVersion, char **clientDriverName)
+static Bool VA_NVCTRLGetClientDriverName(Display *dpy, int screen,
+        int *ddxDriverMajorVersion, int *ddxDriverMinorVersion,
+        int *ddxDriverPatchVersion, char **clientDriverName)
 {
     if (ddxDriverMajorVersion)
         *ddxDriverMajorVersion = 0;
@@ -403,3 +405,32 @@ Bool VA_NVCTRLGetClientDriverName(Display *dpy, int screen,
 
     return True;
 }
+
+VAStatus va_NVCTRL_GetDriverName(
+    VADisplayContextP pDisplayContext,
+    char **driver_name,
+    int candidate_index
+)
+{
+    VADriverContextP ctx = pDisplayContext->pDriverContext;
+    int direct_capable, driver_major, driver_minor, driver_patch;
+    Bool result;
+
+    if (candidate_index != 0)
+        return VA_STATUS_ERROR_INVALID_PARAMETER;
+
+    result = VA_NVCTRLQueryDirectRenderingCapable(ctx->native_dpy, ctx->x11_screen,
+             &direct_capable);
+    if (!result || !direct_capable)
+        return VA_STATUS_ERROR_UNKNOWN;
+
+    result = VA_NVCTRLGetClientDriverName(ctx->native_dpy, ctx->x11_screen,
+                                          &driver_major, &driver_minor,
+                                          &driver_patch, driver_name);
+    if (!result)
+        return VA_STATUS_ERROR_UNKNOWN;
+
+    return VA_STATUS_SUCCESS;
+}
+
+#endif

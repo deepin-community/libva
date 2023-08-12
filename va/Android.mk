@@ -41,7 +41,6 @@ IGNORED_WARNNING = \
 LOCAL_SRC_FILES := \
 	va.c \
 	va_trace.c \
-	va_fool.c  \
 	va_str.c
 
 LOCAL_CFLAGS_32 += \
@@ -52,7 +51,6 @@ LOCAL_CFLAGS_64 += \
 
 LOCAL_CFLAGS := \
 	$(IGNORED_WARNNING) \
-	$(if $(filter user,$(TARGET_BUILD_VARIANT)),,-DENABLE_VA_MESSAGING) \
 	-DLOG_TAG=\"libva\"
 
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/..

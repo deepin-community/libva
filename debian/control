@@ -1,24 +1,27 @@
 Source: libva
 Section: libs
 Priority: optional
-Maintainer: Deepin Developer <deepin-dev@deepin.org>
-Uploaders: Deepin Packages Builder <packages@deepin.org>
+Maintainer: Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>
+Uploaders:
  Reinhard Tartler <siretart@tauware.de>,
  Sebastian Ramacher <sramacher@debian.org>
 Build-Depends:
  debhelper-compat (= 13),
  libdrm-dev,
  libgl1-mesa-dev | libgl-dev,
- libwayland-dev (>= 1.0.0) [linux-any],
+ libwayland-dev [linux-any],
  libx11-dev,
+ libx11-xcb-dev,
+ libxcb-dri3-dev,
+ libxcb1-dev,
  libxext-dev,
  libxfixes-dev,
  pkg-config,
  perl:any
-Standards-Version: 4.6.0
-Homepage: https://01.org/linuxmedia/vaapi
-#Vcs-Git
-#Vcs-Browser
+Standards-Version: 4.6.2
+Homepage: https://github.com/intel/libva
+Vcs-Git: https://salsa.debian.org/multimedia-team/libva.git
+Vcs-Browser: https://salsa.debian.org/multimedia-team/libva
 Rules-Requires-Root: no
 
 Package: libva-dev
@@ -31,7 +34,7 @@ Depends:
  libva-wayland2 (= ${binary:Version}) [linux-any],
  libva-x11-2 (= ${binary:Version}),
  libva2 (= ${binary:Version}),
- libwayland-dev (>= 1.0.0) [linux-any],
+ libwayland-dev [linux-any],
  ${misc:Depends},
  libset-scalar-perl
 Provides:
@@ -58,19 +61,10 @@ Recommends:
  va-driver-all | va-driver
 Provides:
  libva-driver-abi-1.0,
- libva-driver-abi-1.1,
- libva-driver-abi-1.2,
- libva-driver-abi-1.3,
- libva-driver-abi-1.4,
- libva-driver-abi-1.5,
- libva-driver-abi-1.6,
- libva-driver-abi-1.7,
  libva-driver-abi-1.8,
- libva-driver-abi-1.9,
- libva-driver-abi-1.10,
- libva-driver-abi-1.11,
- libva-driver-abi-1.12,
- libva-driver-abi-1.13
+ libva-driver-abi-1.17,
+ libva-driver-abi-1.18,
+ libva-driver-abi-1.19,
 Description: Video Acceleration (VA) API for Linux -- runtime
  Video Acceleration API (VA API) is a library ("libVA") and API specification
  which enables and provides access to graphics hardware (GPU) acceleration for

@@ -28,9 +28,9 @@
 #include "va_backend.h"
 #include "va_internal.h"
 #include "va_trace.h"
-#include "va_fool.h"
 #include "va_x11.h"
 #include "va_dri2.h"
+#include "va_dri3.h"
 #include "va_dricommon.h"
 #include "va_nvctrl.h"
 #include "va_fglrx.h"
@@ -46,25 +46,17 @@
 
 struct driver_name_map {
     const char *key;
-    int         key_len;
     const char *name;
 };
 
 static const struct driver_name_map g_dri2_driver_name_map[] = {
-    { "i965",       4, "iHD"    }, // Intel iHD  VAAPI driver with i965 DRI driver
-    { "i965",       4, "i965"   }, // Intel i965 VAAPI driver with i965 DRI driver
-    { "iris",       4, "iHD"    }, // Intel iHD  VAAPI driver with iris DRI driver
-    { "iris",       4, "i965"   }, // Intel i965 VAAPI driver with iris DRI driver
-    { NULL,         0, NULL }
+    { "i965",       "iHD"    }, // Intel iHD  VAAPI driver with i965 DRI driver
+    { "i965",       "i965"   }, // Intel i965 VAAPI driver with i965 DRI driver
+    { "iris",       "iHD"    }, // Intel iHD  VAAPI driver with iris DRI driver
+    { "iris",       "i965"   }, // Intel i965 VAAPI driver with iris DRI driver
+    { "crocus",     "i965"   }, // Intel i965 VAAPI driver with crocus DRI driver
+    { NULL,         NULL }
 };
-
-static int va_DisplayContextIsValid(
-    VADisplayContextP pDisplayContext
-)
-{
-    return (pDisplayContext != NULL &&
-            pDisplayContext->pDriverContext != NULL);
-}
 
 static void va_DisplayContextDestroy(
     VADisplayContextP pDisplayContext
@@ -81,6 +73,9 @@ static void va_DisplayContextDestroy(
 
     if (dri_state && dri_state->close)
         dri_state->close(ctx);
+
+    if (dri_state && dri_state->base.fd != -1)
+        close(dri_state->base.fd);
 
     free(pDisplayContext->pDriverContext->drm_state);
     free(pDisplayContext->pDriverContext);
@@ -102,8 +97,7 @@ static VAStatus va_DRI2_GetNumCandidates(
         return VA_STATUS_ERROR_UNKNOWN;
 
     for (m = g_dri2_driver_name_map; m->key != NULL; m++) {
-        if (strlen(driver_name) >= m->key_len &&
-            strncmp(driver_name, m->key, m->key_len) == 0) {
+        if (strcmp(m->key, driver_name) == 0) {
             (*num_candidates)++;
         }
     }
@@ -136,8 +130,7 @@ static VAStatus va_DRI2_GetDriverName(
         return VA_STATUS_ERROR_UNKNOWN;
 
     for (m = g_dri2_driver_name_map; m->key != NULL; m++) {
-        if (strlen(*driver_name_ptr) >= m->key_len &&
-            strncmp(*driver_name_ptr, m->key, m->key_len) == 0) {
+        if (strcmp(m->key, *driver_name_ptr) == 0) {
             if (current_index == candidate_index) {
                 break;
             }
@@ -161,72 +154,30 @@ static VAStatus va_DRI2_GetDriverName(
     return VA_STATUS_SUCCESS;
 }
 
-static VAStatus va_NVCTRL_GetDriverName(
-    VADisplayContextP pDisplayContext,
-    char **driver_name,
-    int candidate_index
-)
-{
-    VADriverContextP ctx = pDisplayContext->pDriverContext;
-    int direct_capable, driver_major, driver_minor, driver_patch;
-    Bool result;
-
-    if (candidate_index != 0)
-        return VA_STATUS_ERROR_INVALID_PARAMETER;
-
-    result = VA_NVCTRLQueryDirectRenderingCapable(ctx->native_dpy, ctx->x11_screen,
-             &direct_capable);
-    if (!result || !direct_capable)
-        return VA_STATUS_ERROR_UNKNOWN;
-
-    result = VA_NVCTRLGetClientDriverName(ctx->native_dpy, ctx->x11_screen,
-                                          &driver_major, &driver_minor,
-                                          &driver_patch, driver_name);
-    if (!result)
-        return VA_STATUS_ERROR_UNKNOWN;
-
-    return VA_STATUS_SUCCESS;
-}
-
-static VAStatus va_FGLRX_GetDriverName(
-    VADisplayContextP pDisplayContext,
-    char **driver_name,
-    int candidate_index
-)
-{
-    VADriverContextP ctx = pDisplayContext->pDriverContext;
-    int driver_major, driver_minor, driver_patch;
-    Bool result;
-
-    if (candidate_index != 0)
-        return VA_STATUS_ERROR_INVALID_PARAMETER;
-
-    result = VA_FGLRXGetClientDriverName(ctx->native_dpy, ctx->x11_screen,
-                                         &driver_major, &driver_minor,
-                                         &driver_patch, driver_name);
-    if (!result)
-        return VA_STATUS_ERROR_UNKNOWN;
-
-    return VA_STATUS_SUCCESS;
-}
-
 static VAStatus va_DisplayContextGetDriverName(
     VADisplayContextP pDisplayContext,
     char **driver_name, int candidate_index
 )
 {
-    VAStatus vaStatus;
+    VAStatus vaStatus = VA_STATUS_ERROR_UNKNOWN;
 
     if (driver_name)
         *driver_name = NULL;
     else
         return VA_STATUS_ERROR_UNKNOWN;
 
-    vaStatus = va_DRI2_GetDriverName(pDisplayContext, driver_name, candidate_index);
+    if (!getenv("LIBVA_DRI3_DISABLE"))
+        vaStatus = va_DRI3_GetDriverName(pDisplayContext, driver_name, candidate_index);
+    if (vaStatus != VA_STATUS_SUCCESS)
+        vaStatus = va_DRI2_GetDriverName(pDisplayContext, driver_name, candidate_index);
+#ifdef HAVE_NVCTRL
     if (vaStatus != VA_STATUS_SUCCESS)
         vaStatus = va_NVCTRL_GetDriverName(pDisplayContext, driver_name, candidate_index);
+#endif
+#ifdef HAVE_FGLRX
     if (vaStatus != VA_STATUS_SUCCESS)
         vaStatus = va_FGLRX_GetDriverName(pDisplayContext, driver_name, candidate_index);
+#endif
 
     return vaStatus;
 }
@@ -236,9 +187,12 @@ static VAStatus va_DisplayContextGetNumCandidates(
     int *num_candidates
 )
 {
-    VAStatus vaStatus;
+    VAStatus vaStatus = VA_STATUS_ERROR_UNKNOWN;
 
-    vaStatus = va_DRI2_GetNumCandidates(pDisplayContext, num_candidates);
+    if (!getenv("LIBVA_DRI3_DISABLE"))
+        vaStatus = va_DRI3_GetNumCandidates(pDisplayContext, num_candidates);
+    if (vaStatus != VA_STATUS_SUCCESS)
+        vaStatus = va_DRI2_GetNumCandidates(pDisplayContext, num_candidates);
 
     /* A call to va_DisplayContextGetDriverName will fallback to other
      * methods (i.e. NVCTRL, FGLRX) when DRI2 is unsuccessful.  All of those
@@ -265,7 +219,6 @@ VADisplay vaGetDisplay(
     if (!pDisplayContext)
         return NULL;
 
-    pDisplayContext->vaIsValid       = va_DisplayContextIsValid;
     pDisplayContext->vaDestroy       = va_DisplayContextDestroy;
     pDisplayContext->vaGetNumCandidates = va_DisplayContextGetNumCandidates;
     pDisplayContext->vaGetDriverNameByIndex = va_DisplayContextGetDriverName;
@@ -330,9 +283,6 @@ VAStatus vaPutSurface(
 )
 {
     VADriverContextP ctx;
-
-    if (va_fool_postp)
-        return VA_STATUS_SUCCESS;
 
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);

@@ -119,6 +119,7 @@ extern "C" {
  *  - \ref api_enc_mpeg2
  *  - \ref api_enc_vp8
  *  - \ref api_enc_vp9
+ *  - \ref api_enc_av1
  * - Decoder (HEVC, JPEG, VP8, VP9, AV1)
  *      - \ref api_dec_hevc
  *      - \ref api_dec_jpeg
@@ -400,6 +401,7 @@ typedef int VAStatus;   /** Return status type from functions */
  */
 const char *vaErrorStr(VAStatus error_status);
 
+/** \brief Structure to describe rectangle. */
 typedef struct _VARectangle {
     int16_t x;
     int16_t y;
@@ -409,12 +411,18 @@ typedef struct _VARectangle {
 
 /** \brief Generic motion vector data structure. */
 typedef struct _VAMotionVector {
-    /** \mv0[0]: horizontal motion vector for past reference */
-    /** \mv0[1]: vertical motion vector for past reference */
-    /** \mv1[0]: horizontal motion vector for future reference */
-    /** \mv1[1]: vertical motion vector for future reference */
-    int16_t  mv0[2];  /* past reference */
-    int16_t  mv1[2];  /* future reference */
+    /** \brief Past reference
+     *
+     * - \c [0]: horizontal motion vector for past reference
+     * - \c [1]: vertical motion vector for past reference
+     */
+    int16_t  mv0[2];
+    /** \brief Future reference
+     *
+     * - \c [0]: horizontal motion vector for future reference
+     * - \c [1]: vertical motion vector for future reference
+     */
+    int16_t  mv1[2];
 } VAMotionVector;
 
 /** Type of a message callback, used for both error and info log. */
@@ -529,7 +537,8 @@ typedef enum {
     VAProfileAV1Profile1                = 33,
     VAProfileHEVCSccMain444_10          = 34,
     /** \brief Profile ID used for protected video playback. */
-    VAProfileProtected                  = 35
+    VAProfileProtected                  = 35,
+    VAProfileH264High10                 = 36
 } VAProfile;
 
 /**
@@ -996,6 +1005,37 @@ typedef enum {
      * support the VAConfigAttribEncHEVCFeatures attribute.
      */
     VAConfigAttribEncHEVCBlockSizes     = 51,
+    /**
+     * \brief AV1 encoding attribute. Read-only.
+     *
+     * This attribute exposes a number of capabilities of the underlying
+     * AV1 implementation. The attribute value is partitioned into fields as defined in the
+     * VAConfigAttribValEncAV1 union.
+     */
+    VAConfigAttribEncAV1                = 52,
+    /**
+     * \brief AV1 encoding attribute extend1. Read-only.
+     *
+     * This attribute exposes a number of capabilities of the underlying
+     * AV1 implementation. The attribute value is partitioned into fields as defined in the
+     * VAConfigAttribValEncAV1Ext1 union.
+     */
+    VAConfigAttribEncAV1Ext1            = 53,
+    /**
+     * \brief AV1 encoding attribute extend2. Read-only.
+     *
+     * This attribute exposes a number of capabilities of the underlying
+     * AV1 implementation. The attribute value is partitioned into fields as defined in the
+     * VAConfigAttribValEncAV1Ext2 union.
+     */
+    VAConfigAttribEncAV1Ext2            = 54,
+    /** \brief Settings per block attribute for Encoding.  Read-only.
+     *
+     * This attribute describes whether to support delta qp per block,
+     * the supported size of delta qp block and the size of delta QP in bytes.
+     * The value returned uses the VAConfigAttribValEncPerBlockControl type.
+     */
+    VAConfigAttribEncPerBlockControl    = 55,
     /**@}*/
     VAConfigAttribTypeMax
 } VAConfigAttribType;
@@ -1376,6 +1416,21 @@ typedef union _VAConfigAttribValContextPriority {
     uint32_t value;
 } VAConfigAttribValContextPriority;
 
+/** brief Attribute value VAConfigAttribEncPerBlockControl */
+typedef union _VAConfigAttribValEncPerBlockControl {
+    struct {
+        /** \brief whether to support dela qp per block */
+        uint32_t delta_qp_support         : 1;
+        /** \brief supported size of delta qp block */
+        uint32_t log2_delta_qp_block_size : 4;
+        /** \brief size of delta qp per block in bytes*/
+        uint32_t delta_qp_size_in_bytes   : 3;
+        /** \brief reserved bit for future, must be zero */
+        uint32_t reserved                 : 24;
+    } bits;
+    uint32_t value;
+} VAConfigAttribValEncPerBlockControl;
+
 /** @name Attribute values for VAConfigAttribProtectedContentCipherAlgorithm */
 /** \brief AES cipher */
 #define VA_PC_CIPHER_AES                    0x00000001
@@ -1644,9 +1699,9 @@ typedef struct _VASurfaceAttrib {
 
 /**
  * @name VASurfaceAttribMemoryType values in bit fields.
- * Bit 0:7 are reserved for generic types, Bit 31:28 are reserved for
- * Linux DRM, Bit 23:20 are reserved for Android. DRM and Android specific
- * types are defined in DRM and Android header files.
+ * Bits 0:7 are reserved for generic types. Bits 31:28 are reserved for
+ * Linux DRM. Bits 23:20 are reserved for Android. Bits 19:16 are reserved for Win32.
+ * DRM, Android and Win32 specific types are defined in respective va_*.h header files.
  */
 /**@{*/
 /** \brief VA memory type (default) is supported. */
@@ -1723,7 +1778,7 @@ typedef struct _VASurfaceAttribExternalBuffers {
  * \brief Queries surface attributes for the supplied config.
  *
  * This function queries for all supported attributes for the
- * supplied VA @config. In particular, if the underlying hardware
+ * supplied VA \c config. In particular, if the underlying hardware
  * supports the creation of VA surfaces in various formats, then
  * this function will enumerate all pixel formats that are supported.
  *
@@ -2043,6 +2098,17 @@ typedef enum {
      * Refer to \c VAEncryptionParameters
     */
     VAEncryptionParameterBufferType = 60,
+
+    /**
+     * \brief Encoding delta QP per block buffer
+     *
+     * This buffer only could be created and accepted
+     * when \c VAConfigAttribValEncPerBlockControl delta_qp_support == 1.
+     * This input buffer contains delta QP per block for encoding.
+     * The supported size of delta QP block and the size of delta QP
+     * must be quried from \c VAConfigAttribValEncPerBlockControl.
+     */
+    VAEncDeltaQpPerBlockBufferType   = 61,
 
     VABufferTypeMax
 } VABufferType;
@@ -5011,6 +5077,11 @@ typedef enum {
      * modes of vaCopy
      */
     VADisplayAttribCopy                 = 20,
+    /*
+     * HW attribute. read only. retrieve the device information from backend driver
+     * the value should be combined with vendor ID << 16 | device ID
+     */
+    VADisplayPCIID                      = 21,
 } VADisplayAttribType;
 
 /* flags for VADisplayAttribute */
@@ -5191,6 +5262,7 @@ VAStatus vaCopy(VADisplay dpy, VACopyObject * dst, VACopyObject * src, VACopyOpt
 #include <va/va_enc_mpeg2.h>
 #include <va/va_enc_vp8.h>
 #include <va/va_enc_vp9.h>
+#include <va/va_enc_av1.h>
 #include <va/va_fei.h>
 #include <va/va_fei_h264.h>
 #include <va/va_vpp.h>

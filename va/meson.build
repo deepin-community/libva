@@ -12,7 +12,6 @@ version_file = configure_file(
 libva_sources = [
   'va.c',
   'va_compat.c',
-  'va_fool.c',
   'va_str.c',
   'va_trace.c',
 ]
@@ -39,6 +38,7 @@ libva_headers = [
   'va_fei_hevc.h',
   'va_enc_mpeg2.h',
   'va_enc_vp9.h',
+  'va_enc_av1.h',
   'va_str.h',
   'va_tpi.h',
   'va_prot.h',
@@ -46,15 +46,24 @@ libva_headers = [
   version_file,
 ]
 
+# headers that have be copied for subprojects
+libva_headers_subproject = []
+
 libva_headers_priv = [
   'sysdeps.h',
-  'va_fool.h',
   'va_internal.h',
   'va_trace.h',
 ]
 
 libva_sym = 'libva.syms'
-libva_sym_path = '@0@/@1@'.format(meson.current_source_dir(), libva_sym)
+libva_sym_arg = '-Wl,-version-script,' + '@0@/@1@'.format(meson.current_source_dir(), libva_sym)
+
+libva_link_args = []
+libva_link_depends = []
+if cc.links('', name: '-Wl,--version-script', args: ['-shared', libva_sym_arg])
+  libva_link_args = libva_sym_arg
+  libva_link_depends = libva_sym
+endif
 
 install_headers(libva_headers, subdir : 'va')
 
@@ -63,12 +72,13 @@ libva = shared_library(
   sources : libva_sources +
             libva_headers +
             libva_headers_priv,
-  soversion : libva_lt_current,
+  vs_module_defs : 'libva.def',
+  soversion : host_machine.system() == 'windows' ? '' : libva_lt_current,
   version : libva_lt_version,
-  c_args : [ '-DSYSCONFDIR="' + sysconfdir + '"'] + ['-DVA_DRIVERS_PATH="' + driverdir + '"'] + va_c_args,
+  c_args : [ '-DSYSCONFDIR="' + sysconfdir + '"'] + ['-DVA_DRIVERS_PATH="' + driverdir + '"'],
   include_directories : configinc,
-  link_args : '-Wl,-version-script,' + libva_sym_path,
-  link_depends : libva_sym,
+  link_args : libva_link_args,
+  link_depends : libva_link_depends,
   install : true,
   dependencies : [ dl_dep ])
 
@@ -88,6 +98,8 @@ if WITH_DRM
     'drm/va_drm.h',
   ]
 
+  libva_headers_subproject += libva_drm_headers
+
   libva_drm_headers_priv = [
     'drm/va_drm_auth.h',
     'drm/va_drm_auth_x11.h',
@@ -97,9 +109,10 @@ if WITH_DRM
   deps = [ libdrm_dep ]
 
   libva_drm_args = []
-  if get_option('with_x11') != 'no' and x11_dep.found()
+  if WITH_X11
     libva_drm_sources += [ 'drm/va_drm_auth_x11.c' ]
     libva_drm_args += [
+      '-DHAVE_VA_X11',
       '-DLIBVA_MAJOR_VERSION=@0@'.format(libva_major_version)
     ]
     deps += [ x11_dep ]
@@ -128,28 +141,34 @@ if WITH_X11
   libva_x11_sources = [
     'x11/dri2_util.c',
     'x11/va_dri2.c',
+    'x11/va_dri3.c',
+    'drm/va_drm_utils.c',
     'x11/va_dricommon.c',
     'x11/va_fglrx.c',
     'x11/va_nvctrl.c',
     'x11/va_x11.c',
   ]
 
-  libva_x11_headers = [
-    'va_x11.h',
+  libva_dri_headers = [
     'x11/va_dri2.h',
     'x11/va_dricommon.h',
   ]
 
+  libva_x11_headers = ['va_x11.h'] + libva_dri_headers
+
+  libva_headers_subproject += libva_dri_headers
+
   libva_x11_headers_priv = [
     'x11/va_dri2str.h',
     'x11/va_dri2tokens.h',
+    'x11/va_dri3.h',
     'x11/va_fglrx.h',
     'x11/va_nvctrl.h',
   ]
 
   install_headers(libva_x11_headers, subdir : 'va')
 
-  deps = [ libdrm_dep, x11_dep, xext_dep, xfixes_dep, libva_dep ]
+  deps = [ libdrm_dep, x11_dep, xext_dep, xfixes_dep, x11_xcb_dep, xcb_dep, xcb_dri3_dep, libva_dep ]
 
   libva_x11 = shared_library(
     'va-x11',
@@ -177,6 +196,8 @@ if WITH_GLX
     'glx/va_backend_glx.h',
     'glx/va_glx.h',
   ]
+
+  libva_headers_subproject += libva_glx_headers
 
   libva_glx_headers_priv = [
     'glx/va_glx_impl.h',
@@ -216,6 +237,8 @@ if WITH_WAYLAND
     'wayland/va_wayland.h',
   ]
 
+  libva_headers_subproject += libva_wayland_headers
+
   libva_wayland_headers_priv = [
     'wayland/va_wayland_drm.h',
     'wayland/va_wayland_emgd.h',
@@ -227,7 +250,7 @@ if WITH_WAYLAND
       'wayland-drm-client-protocol.c',
       output : 'wayland-drm-client-protocol.c',
       input : 'wayland/wayland-drm.xml',
-      command : [wl_scanner, 'code', '@INPUT@', '@OUTPUT@']),
+      command : [wl_scanner, 'private-code', '@INPUT@', '@OUTPUT@']),
 
     custom_target(
       'wayland-drm-client-protocol.h',
@@ -256,3 +279,48 @@ if WITH_WAYLAND
     include_directories : configinc,
     dependencies : deps)
 endif
+
+fs = import('fs')
+if WITH_WIN32
+  libva_win32_sources = [
+    'win32/va_win32.c',
+  ]
+
+  libva_win32_headers = [
+    'win32/va_win32.h',
+  ]
+
+  libva_headers_subproject += libva_win32_headers
+
+  deps = [ libwin32_dep, libva_dep ]
+
+  libva_win32_args = [
+    '-DLIBVA_MAJOR_VERSION=@0@'.format(libva_major_version)
+  ]
+
+  install_headers(libva_win32_headers, subdir : 'va')
+
+  libva_win32 = shared_library(
+    'va_win32',
+    sources : libva_win32_sources +
+              libva_win32_headers,
+    soversion : host_machine.system() == 'windows' ? '' : libva_lt_current,
+    version : libva_lt_version,
+    install : true,
+    c_args : libva_win32_args,
+    vs_module_defs : 'libva_win32.def',
+    dependencies : deps)
+
+  libva_win32_dep = declare_dependency(
+    link_with : libva_win32,
+    include_directories : configinc,
+    dependencies : deps)
+endif
+
+foreach header : libva_headers_subproject
+  if meson.version().version_compare('>= 0.64')
+    fs.copyfile(header)
+  else
+    configure_file(output: fs.name(header), input: header, copy: true)
+  endif
+endforeach
