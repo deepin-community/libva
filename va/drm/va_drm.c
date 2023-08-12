@@ -31,16 +31,6 @@
 #include "va_drm_auth.h"
 #include "va_drm_utils.h"
 
-static int
-va_DisplayContextIsValid(VADisplayContextP pDisplayContext)
-{
-    VADriverContextP const pDriverContext = pDisplayContext->pDriverContext;
-
-    return (pDriverContext &&
-            ((pDriverContext->display_type & VA_DISPLAY_MAJOR_MASK) ==
-             VA_DISPLAY_DRM));
-}
-
 static void
 va_DisplayContextDestroy(VADisplayContextP pDisplayContext)
 {
@@ -97,9 +87,9 @@ vaGetDisplayDRM(int fd)
     VADisplayContextP pDisplayContext = NULL;
     VADriverContextP  pDriverContext  = NULL;
     struct drm_state *drm_state       = NULL;
-    int is_render_nodes;
+    int node_type;
 
-    if (fd < 0 || (is_render_nodes = VA_DRM_IsRenderNodeFd(fd)) < 0)
+    if (fd < 0 || (node_type = drmGetNodeTypeFromFd(fd)) < 0)
         return NULL;
 
     /* Create new entry */
@@ -113,7 +103,6 @@ vaGetDisplayDRM(int fd)
     if (!pDisplayContext)
         goto error;
 
-    pDisplayContext->vaIsValid       = va_DisplayContextIsValid;
     pDisplayContext->vaDestroy       = va_DisplayContextDestroy;
     pDisplayContext->vaGetNumCandidates = va_DisplayContextGetNumCandidates;
     pDisplayContext->vaGetDriverNameByIndex = va_DisplayContextGetDriverNameByIndex;
@@ -123,7 +112,7 @@ vaGetDisplayDRM(int fd)
         goto error;
 
     pDriverContext->native_dpy   = NULL;
-    pDriverContext->display_type = is_render_nodes ?
+    pDriverContext->display_type = node_type == DRM_NODE_RENDER ?
                                    VA_DISPLAY_DRM_RENDERNODES : VA_DISPLAY_DRM;
     pDriverContext->drm_state    = drm_state;
 

@@ -30,32 +30,46 @@
 #include "va_backend_vpp.h"
 #include "va_internal.h"
 #include "va_trace.h"
-#include "va_fool.h"
 
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32)
+#include "compat_win32.h"
+#define DRIVER_EXTENSION    "_drv_video.dll"
+#define DRIVER_PATH_STRING  "%s\\%s%s"
+#define ENV_VAR_SEPARATOR ";"
+#else
 #include <dlfcn.h>
 #include <unistd.h>
+#define DRIVER_EXTENSION    "_drv_video.so"
+#define DRIVER_PATH_STRING  "%s/%s%s"
+#define ENV_VAR_SEPARATOR ":"
+#endif
 #ifdef ANDROID
 #include <log/log.h>
-/* support versions < JellyBean */
-#ifndef ALOGE
-#define ALOGE LOGE
 #endif
-#ifndef ALOGI
-#define ALOGI LOGI
-#endif
-#endif
-
-#define DRIVER_EXTENSION    "_drv_video.so"
 
 #define ASSERT      assert
 #define CHECK_VTABLE(s, ctx, func) if (!va_checkVtable(dpy, ctx->vtable->va##func, #func)) s = VA_STATUS_ERROR_UNIMPLEMENTED;
 #define CHECK_MAXIMUM(s, ctx, var) if (!va_checkMaximum(dpy, ctx->max_##var, #var)) s = VA_STATUS_ERROR_UNKNOWN;
 #define CHECK_STRING(s, ctx, var) if (!va_checkString(dpy, ctx->str_##var, #var)) s = VA_STATUS_ERROR_UNKNOWN;
+
+#ifndef HAVE_SECURE_GETENV
+static char * secure_getenv(const char *name)
+{
+#if defined(__MINGW32__) || defined(__MINGW64__)
+    if (getuid() == geteuid())
+#else
+    if (getuid() == geteuid() && getgid() == getegid())
+#endif
+        return getenv(name);
+    else
+        return NULL;
+}
+#endif
 
 /*
  * read a config "env" for libva.conf or from environment setting
@@ -97,7 +111,7 @@ int va_parseConfig(char *env, char *env_value)
         fclose(fp);
 
     /* no setting in config file, use env setting */
-    value = getenv(env);
+    value = secure_getenv(env);
     if (value) {
         if (env_value) {
             strncpy(env_value, value, 1024);
@@ -112,7 +126,9 @@ int va_parseConfig(char *env, char *env_value)
 int vaDisplayIsValid(VADisplay dpy)
 {
     VADisplayContextP pDisplayContext = (VADisplayContextP)dpy;
-    return pDisplayContext && (pDisplayContext->vadpy_magic == VA_DISPLAY_MAGIC) && pDisplayContext->vaIsValid(pDisplayContext);
+    return pDisplayContext &&
+           pDisplayContext->vadpy_magic == VA_DISPLAY_MAGIC &&
+           pDisplayContext->pDriverContext;
 }
 
 /*
@@ -188,7 +204,6 @@ VAMessageCallback vaSetInfoCallback(VADisplay dpy, VAMessageCallback callback, v
 
 static void va_MessagingInit()
 {
-#if ENABLE_VA_MESSAGING
     char env_value[1024];
     int ret;
 
@@ -197,12 +212,10 @@ static void va_MessagingInit()
         if (ret < 1 || default_log_level < 0 || default_log_level > 2)
             default_log_level = 2;
     }
-#endif
 }
 
 void va_errorMessage(VADisplay dpy, const char *msg, ...)
 {
-#if ENABLE_VA_MESSAGING
     VADisplayContextP dctx = (VADisplayContextP)dpy;
     char buf[512], *dynbuf;
     va_list args;
@@ -227,12 +240,10 @@ void va_errorMessage(VADisplay dpy, const char *msg, ...)
         free(dynbuf);
     } else if (len > 0)
         dctx->error_callback(dctx->error_callback_user_context, buf);
-#endif
 }
 
 void va_infoMessage(VADisplay dpy, const char *msg, ...)
 {
-#if ENABLE_VA_MESSAGING
     VADisplayContextP dctx = (VADisplayContextP)dpy;
     char buf[512], *dynbuf;
     va_list args;
@@ -257,7 +268,6 @@ void va_infoMessage(VADisplay dpy, const char *msg, ...)
         free(dynbuf);
     } else if (len > 0)
         dctx->info_callback(dctx->info_callback_user_context, buf);
-#endif
 }
 
 static void va_driverErrorCallback(VADriverContextP ctx,
@@ -352,7 +362,7 @@ static VAStatus va_getDriverNumCandidates(VADisplay dpy, int *num_candidates)
     VADriverContextP ctx;
 
     ctx = CTX(dpy);
-    driver_name_env = getenv("LIBVA_DRIVER_NAME");
+    driver_name_env = secure_getenv("LIBVA_DRIVER_NAME");
 
     if (pDisplayContext->vaGetNumCandidates)
         vaStatus = pDisplayContext->vaGetNumCandidates(pDisplayContext, num_candidates);
@@ -378,7 +388,7 @@ static VAStatus va_getDriverNameByIndex(VADisplay dpy, char **driver_name, int c
         else
             status = VA_STATUS_ERROR_INVALID_PARAMETER;
     }
-    driver_name_env = getenv("LIBVA_DRIVER_NAME");
+    driver_name_env = secure_getenv("LIBVA_DRIVER_NAME");
     /*if user set driver name by vaSetDriverName */
     if (ctx->override_driver_name) {
         if (*driver_name)
@@ -403,13 +413,13 @@ static VAStatus va_getDriverNameByIndex(VADisplay dpy, char **driver_name, int c
 
 static char *va_getDriverPath(const char *driver_dir, const char *driver_name)
 {
-    int n = snprintf(0, 0, "%s/%s%s", driver_dir, driver_name, DRIVER_EXTENSION);
+    int n = snprintf(0, 0, DRIVER_PATH_STRING, driver_dir, driver_name, DRIVER_EXTENSION);
     if (n < 0)
         return NULL;
     char *driver_path = (char *) malloc(n + 1);
     if (!driver_path)
         return NULL;
-    n = snprintf(driver_path, n + 1, "%s/%s%s",
+    n = snprintf(driver_path, n + 1, DRIVER_PATH_STRING,
                  driver_dir, driver_name, DRIVER_EXTENSION);
     if (n < 0) {
         free(driver_path);
@@ -428,7 +438,7 @@ static VAStatus va_openDriver(VADisplay dpy, char *driver_name)
 
     if (geteuid() == getuid())
         /* don't allow setuid apps to use LIBVA_DRIVERS_PATH */
-        search_path = getenv("LIBVA_DRIVERS_PATH");
+        search_path = secure_getenv("LIBVA_DRIVERS_PATH");
     if (!search_path)
         search_path = VA_DRIVERS_PATH;
 
@@ -438,7 +448,7 @@ static VAStatus va_openDriver(VADisplay dpy, char *driver_name)
                         __FUNCTION__, __LINE__);
         return VA_STATUS_ERROR_ALLOCATION_FAILED;
     }
-    driver_dir = strtok_r(search_path, ":", &saveptr);
+    driver_dir = strtok_r(search_path, ENV_VAR_SEPARATOR, &saveptr);
     while (driver_dir) {
         void *handle = NULL;
         char *driver_path = va_getDriverPath(driver_dir, driver_name);
@@ -584,7 +594,7 @@ static VAStatus va_openDriver(VADisplay dpy, char *driver_name)
         }
         free(driver_path);
 
-        driver_dir = strtok_r(NULL, ":", &saveptr);
+        driver_dir = strtok_r(NULL, ENV_VAR_SEPARATOR, &saveptr);
     }
 
     free(search_path);
@@ -724,8 +734,6 @@ VAStatus vaInitialize(
 
     va_TraceInit(dpy);
 
-    va_FoolInit(dpy);
-
     va_MessagingInit();
 
     va_infoMessage(dpy, "VA-API version %s\n", VA_VERSION_S);
@@ -799,8 +807,6 @@ VAStatus vaTerminate(
     VA_TRACE_RET(dpy, vaStatus);
 
     va_TraceEnd(dpy);
-
-    va_FoolEnd(dpy);
 
     if (VA_STATUS_SUCCESS == vaStatus)
         pDisplayContext->vaDestroy(pDisplayContext);
@@ -927,12 +933,13 @@ VAStatus vaCreateConfig(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
+    VA_TRACE_VVVA(dpy, CREATE_CONFIG, TRACE_BEGIN, profile, entrypoint, num_attribs, attrib_list);
     vaStatus = ctx->vtable->vaCreateConfig(ctx, profile, entrypoint, attrib_list, num_attribs, config_id);
 
     /* record the current entrypoint for further trace/fool determination */
     VA_TRACE_ALL(va_TraceCreateConfig, dpy, profile, entrypoint, attrib_list, num_attribs, config_id);
-    VA_FOOL_FUNC(va_FoolCreateConfig, dpy, profile, entrypoint, attrib_list, num_attribs, config_id);
     VA_TRACE_RET(dpy, vaStatus);
+    VA_TRACE_PV(dpy, CREATE_CONFIG, TRACE_END, config_id, vaStatus);
     return vaStatus;
 }
 
@@ -947,10 +954,12 @@ VAStatus vaDestroyConfig(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
+    VA_TRACE_V(dpy, DESTROY_CONFIG, TRACE_BEGIN, config_id);
     vaStatus = ctx->vtable->vaDestroyConfig(ctx, config_id);
 
     VA_TRACE_ALL(va_TraceDestroyConfig, dpy, config_id);
     VA_TRACE_RET(dpy, vaStatus);
+    VA_TRACE_V(dpy, DESTROY_CONFIG, TRACE_END, vaStatus);
 
     return vaStatus;
 }
@@ -1145,6 +1154,7 @@ vaQuerySurfaceAttributes(
     if (!ctx)
         return VA_STATUS_ERROR_INVALID_DISPLAY;
 
+    VA_TRACE_V(dpy, QUERY_SURFACE_ATTR, TRACE_BEGIN, config);
     if (!ctx->vtable->vaQuerySurfaceAttributes)
         vaStatus = va_impl_query_surface_attributes(ctx, config,
                    attrib_list, num_attribs);
@@ -1154,6 +1164,7 @@ vaQuerySurfaceAttributes(
 
     VA_TRACE_LOG(va_TraceQuerySurfaceAttributes, dpy, config, attrib_list, num_attribs);
     VA_TRACE_RET(dpy, vaStatus);
+    VA_TRACE_PA(dpy, QUERY_SURFACE_ATTR, TRACE_END, num_attribs, attrib_list);
 
     return vaStatus;
 }
@@ -1178,6 +1189,7 @@ vaCreateSurfaces(
     if (!ctx)
         return VA_STATUS_ERROR_INVALID_DISPLAY;
 
+    VA_TRACE_VVVVA(dpy, CREATE_SURFACE, TRACE_BEGIN, width, height, format, num_attribs, attrib_list);
     if (ctx->vtable->vaCreateSurfaces2)
         vaStatus = ctx->vtable->vaCreateSurfaces2(ctx, format, width, height,
                    surfaces, num_surfaces,
@@ -1191,6 +1203,7 @@ vaCreateSurfaces(
                  dpy, width, height, format, num_surfaces, surfaces,
                  attrib_list, num_attribs);
     VA_TRACE_RET(dpy, vaStatus);
+    VA_TRACE_VVA(dpy, CREATE_SURFACE, TRACE_END, vaStatus, num_surfaces, surfaces);
 
     return vaStatus;
 }
@@ -1208,11 +1221,13 @@ VAStatus vaDestroySurfaces(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
+    VA_TRACE_VA(dpy, DESTROY_SURFACE, TRACE_BEGIN, num_surfaces, surface_list);
     VA_TRACE_LOG(va_TraceDestroySurfaces,
                  dpy, surface_list, num_surfaces);
 
     vaStatus = ctx->vtable->vaDestroySurfaces(ctx, surface_list, num_surfaces);
     VA_TRACE_RET(dpy, vaStatus);
+    VA_TRACE_V(dpy, DESTROY_SURFACE, TRACE_END, vaStatus);
 
     return vaStatus;
 }
@@ -1234,12 +1249,14 @@ VAStatus vaCreateContext(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
+    VA_TRACE_VVVVVA(dpy, CREATE_CONTEXT, TRACE_BEGIN, config_id, picture_width, picture_height, flag, num_render_targets, render_targets);
     vaStatus = ctx->vtable->vaCreateContext(ctx, config_id, picture_width, picture_height,
                                             flag, render_targets, num_render_targets, context);
 
     /* keep current encode/decode resoluton */
     VA_TRACE_ALL(va_TraceCreateContext, dpy, config_id, picture_width, picture_height, flag, render_targets, num_render_targets, context);
     VA_TRACE_RET(dpy, vaStatus);
+    VA_TRACE_PV(dpy, CREATE_CONTEXT, TRACE_END, context, vaStatus);
 
     return vaStatus;
 }
@@ -1255,10 +1272,12 @@ VAStatus vaDestroyContext(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
+    VA_TRACE_V(dpy, DESTROY_CONTEXT, TRACE_BEGIN, context);
     vaStatus = ctx->vtable->vaDestroyContext(ctx, context);
 
     VA_TRACE_ALL(va_TraceDestroyContext, dpy, context);
     VA_TRACE_RET(dpy, vaStatus);
+    VA_TRACE_V(dpy, DESTROY_CONTEXT, TRACE_END, vaStatus);
 
     return vaStatus;
 }
@@ -1369,14 +1388,14 @@ VAStatus vaCreateBuffer(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
-    VA_FOOL_FUNC(va_FoolCreateBuffer, dpy, context, type, size, num_elements, data, buf_id);
-
+    VA_TRACE_VVVV(dpy, CREATE_BUFFER, TRACE_BEGIN, context, type, size, num_elements);
     vaStatus = ctx->vtable->vaCreateBuffer(ctx, context, type, size, num_elements, data, buf_id);
 
     VA_TRACE_LOG(va_TraceCreateBuffer,
                  dpy, context, type, size, num_elements, data, buf_id);
 
     VA_TRACE_RET(dpy, vaStatus);
+    VA_TRACE_PV(dpy, CREATE_BUFFER, TRACE_END, buf_id, vaStatus);
     return vaStatus;
 }
 
@@ -1419,8 +1438,6 @@ VAStatus vaBufferSetNumElements(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
-    VA_FOOL_FUNC(va_FoolCheckContinuity, dpy);
-
     vaStatus = ctx->vtable->vaBufferSetNumElements(ctx, buf_id, num_elements);
     VA_TRACE_RET(dpy, vaStatus);
     return vaStatus;
@@ -1438,8 +1455,6 @@ VAStatus vaMapBuffer(
 
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
-
-    VA_FOOL_FUNC(va_FoolMapBuffer, dpy, buf_id, pbuf);
 
     va_status = ctx->vtable->vaMapBuffer(ctx, buf_id, pbuf);
 
@@ -1459,8 +1474,6 @@ VAStatus vaUnmapBuffer(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
-    VA_FOOL_FUNC(va_FoolCheckContinuity, dpy);
-
     vaStatus = ctx->vtable->vaUnmapBuffer(ctx, buf_id);
     VA_TRACE_RET(dpy, vaStatus);
     return vaStatus;
@@ -1476,13 +1489,13 @@ VAStatus vaDestroyBuffer(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
-    VA_FOOL_FUNC(va_FoolCheckContinuity, dpy);
-
+    VA_TRACE_V(dpy, DESTROY_BUFFER, TRACE_BEGIN, buffer_id);
     VA_TRACE_LOG(va_TraceDestroyBuffer,
                  dpy, buffer_id);
 
     vaStatus = ctx->vtable->vaDestroyBuffer(ctx, buffer_id);
     VA_TRACE_RET(dpy, vaStatus);
+    VA_TRACE_V(dpy, DESTROY_BUFFER, TRACE_END, vaStatus);
     return vaStatus;
 }
 
@@ -1500,8 +1513,6 @@ VAStatus vaBufferInfo(
 
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
-
-    VA_FOOL_FUNC(va_FoolBufferInfo, dpy, buf_id, type, size, num_elements);
 
     vaStatus = ctx->vtable->vaBufferInfo(ctx, buf_id, type, size, num_elements);
     VA_TRACE_RET(dpy, vaStatus);
@@ -1577,11 +1588,12 @@ VAStatus vaBeginPicture(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
+    VA_TRACE_VV(dpy, BEGIN_PICTURE, TRACE_BEGIN, context, render_target);
     VA_TRACE_ALL(va_TraceBeginPicture, dpy, context, render_target);
-    VA_FOOL_FUNC(va_FoolCheckContinuity, dpy);
 
     va_status = ctx->vtable->vaBeginPicture(ctx, context, render_target);
     VA_TRACE_RET(dpy, va_status);
+    VA_TRACE_V(dpy, BEGIN_PICTURE, TRACE_END, va_status);
 
     return va_status;
 }
@@ -1599,11 +1611,13 @@ VAStatus vaRenderPicture(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
+    VA_TRACE_VVA(dpy, RENDER_PICTURE, TRACE_BEGIN, context, num_buffers, buffers);
+    VA_TRACE_BUFFERS(dpy, context, num_buffers, buffers);
     VA_TRACE_LOG(va_TraceRenderPicture, dpy, context, buffers, num_buffers);
-    VA_FOOL_FUNC(va_FoolCheckContinuity, dpy);
 
     vaStatus = ctx->vtable->vaRenderPicture(ctx, context, buffers, num_buffers);
     VA_TRACE_RET(dpy, vaStatus);
+    VA_TRACE_V(dpy, RENDER_PICTURE, TRACE_END, vaStatus);
     return vaStatus;
 }
 
@@ -1618,12 +1632,13 @@ VAStatus vaEndPicture(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
-    VA_FOOL_FUNC(va_FoolCheckContinuity, dpy);
+    VA_TRACE_V(dpy, END_PICTURE, TRACE_BEGIN, context);
     VA_TRACE_ALL(va_TraceEndPicture, dpy, context, 0);
     va_status = ctx->vtable->vaEndPicture(ctx, context);
     VA_TRACE_RET(dpy, va_status);
     /* dump surface content */
     VA_TRACE_ALL(va_TraceEndPictureExt, dpy, context, 1);
+    VA_TRACE_V(dpy, END_PICTURE, TRACE_END, va_status);
 
     return va_status;
 }
@@ -1639,9 +1654,11 @@ VAStatus vaSyncSurface(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
+    VA_TRACE_V(dpy, SYNC_SURFACE, TRACE_BEGIN, render_target);
     va_status = ctx->vtable->vaSyncSurface(ctx, render_target);
     VA_TRACE_LOG(va_TraceSyncSurface, dpy, render_target);
     VA_TRACE_RET(dpy, va_status);
+    VA_TRACE_V(dpy, SYNC_SURFACE, TRACE_END, va_status);
 
     return va_status;
 }
@@ -1658,12 +1675,14 @@ VAStatus vaSyncSurface2(
     CHECK_DISPLAY(dpy);
     ctx = CTX(dpy);
 
+    VA_TRACE_VV(dpy, SYNC_SURFACE2, TRACE_BEGIN, surface, timeout_ns);
     if (ctx->vtable->vaSyncSurface2)
         va_status = ctx->vtable->vaSyncSurface2(ctx, surface, timeout_ns);
     else
         va_status = VA_STATUS_ERROR_UNIMPLEMENTED;
     VA_TRACE_LOG(va_TraceSyncSurface2, dpy, surface, timeout_ns);
     VA_TRACE_RET(dpy, va_status);
+    VA_TRACE_V(dpy, SYNC_SURFACE2, TRACE_END, va_status);
 
     return va_status;
 }

@@ -54,15 +54,6 @@ va_wayland_error(const char *format, ...)
     va_end(args);
 }
 
-static int
-va_DisplayContextIsValid(VADisplayContextP pDisplayContext)
-{
-    VADriverContextP const pDriverContext = pDisplayContext->pDriverContext;
-
-    return (pDriverContext &&
-            pDriverContext->display_type == VA_DISPLAY_WAYLAND);
-}
-
 static void
 va_DisplayContextDestroy(VADisplayContextP pDisplayContext)
 {
@@ -110,10 +101,12 @@ static const struct va_wayland_backend g_backends[] = {
         va_wayland_drm_create,
         va_wayland_drm_destroy
     },
+#ifdef HAVE_EMGD
     {
         va_wayland_emgd_create,
         va_wayland_emgd_destroy
     },
+#endif
     { NULL, }
 };
 
@@ -129,7 +122,6 @@ vaGetDisplayWl(struct wl_display *display)
     if (!pDisplayContext)
         return NULL;
 
-    pDisplayContext->vaIsValid          = va_DisplayContextIsValid;
     pDisplayContext->vaDestroy          = va_DisplayContextDestroy;
     pDisplayContext->vaGetDriverName    = va_DisplayContextGetDriverName;
 

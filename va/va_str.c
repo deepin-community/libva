@@ -37,6 +37,7 @@ const char *vaProfileStr(VAProfile profile)
         TOSTR(VAProfileMPEG4Main);
         TOSTR(VAProfileH264Main);
         TOSTR(VAProfileH264High);
+        TOSTR(VAProfileH264High10);
         TOSTR(VAProfileVC1Simple);
         TOSTR(VAProfileVC1Main);
         TOSTR(VAProfileVC1Advanced);
@@ -144,6 +145,10 @@ const char *vaConfigAttribTypeStr(VAConfigAttribType configAttribType)
         TOSTR(VAConfigAttribProtectedContentUsage);
         TOSTR(VAConfigAttribEncHEVCFeatures);
         TOSTR(VAConfigAttribEncHEVCBlockSizes);
+        TOSTR(VAConfigAttribEncAV1);
+        TOSTR(VAConfigAttribEncAV1Ext1);
+        TOSTR(VAConfigAttribEncAV1Ext2);
+        TOSTR(VAConfigAttribEncPerBlockControl);
     case VAConfigAttribTypeMax:
         break;
     }
@@ -197,6 +202,7 @@ const char *vaBufferTypeStr(VABufferType bufferType)
         TOSTR(VAContextParameterUpdateBufferType);
         TOSTR(VAProtectedSessionExecuteBufferType);
         TOSTR(VAEncryptionParameterBufferType);
+        TOSTR(VAEncDeltaQpPerBlockBufferType);
     case VABufferTypeMax:
         break;
     }
