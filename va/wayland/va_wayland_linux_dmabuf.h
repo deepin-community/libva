@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2012 Intel Corporation. All Rights Reserved.
+ * va_wayland_linux_dmabuf.h - Wayland/linux-dmabuf helpers
+ *
+ * Copyright (c) 2024 Simon Ser
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -16,19 +18,35 @@
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
- * IN NO EVENT SHALL PRECISION INSIGHT AND/OR ITS SUPPLIERS BE LIABLE FOR
+ * IN NO EVENT SHALL INTEL AND/OR ITS SUPPLIERS BE LIABLE FOR
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-#ifndef _VA_ANDROID_H_
-#define _VA_ANDROID_H_
 
-#include <va/va.h>
+#ifndef VA_WAYLAND_LINUX_DMABUF_H
+#define VA_WAYLAND_LINUX_DMABUF_H
 
-/** \brief Android Gralloc buffer memory type. */
-#define VA_SURFACE_ATTRIB_MEM_TYPE_ANDROID_GRALLOC  0x00100000
-/** \brief Android ION buffer memory type. */
-#define VA_SURFACE_ATTRIB_MEM_TYPE_ANDROID_ION      0x00200000
+#include <stdbool.h>
+#include "va_wayland.h"
+#include "va_backend.h"
+#include "va_backend_wayland.h"
 
-#endif /* _VA_ANDROID_H_ */
+/**
+ * \brief Initializes Wayland/linux-dmabuf layer.
+ *
+ * This is an internal function used to initialize the VA/linux-dmabuf subsystem
+ * if the application is running on a linux-dmabuf-based server.
+ *
+ * @param[in]   pDisplayContext the VA display context
+ * @return true if successful
+ */
+DLL_HIDDEN
+bool
+va_wayland_linux_dmabuf_create(VADisplayContextP pDisplayContext);
+
+DLL_HIDDEN
+void
+va_wayland_linux_dmabuf_destroy(VADisplayContextP pDisplayContext);
+
+#endif /* VA_WAYLAND_LINUX_DMABUF_H */
