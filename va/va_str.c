@@ -66,6 +66,8 @@ const char *vaProfileStr(VAProfile profile)
         TOSTR(VAProfileAV1Profile1);
         TOSTR(VAProfileHEVCSccMain444_10);
         TOSTR(VAProfileProtected);
+        TOSTR(VAProfileVVCMain10);
+        TOSTR(VAProfileVVCMultilayerMain10);
     default:
         break;
     }
@@ -149,6 +151,8 @@ const char *vaConfigAttribTypeStr(VAConfigAttribType configAttribType)
         TOSTR(VAConfigAttribEncAV1Ext1);
         TOSTR(VAConfigAttribEncAV1Ext2);
         TOSTR(VAConfigAttribEncPerBlockControl);
+        TOSTR(VAConfigAttribEncMaxTileRows);
+        TOSTR(VAConfigAttribEncMaxTileCols);
     case VAConfigAttribTypeMax:
         break;
     }
@@ -203,6 +207,11 @@ const char *vaBufferTypeStr(VABufferType bufferType)
         TOSTR(VAProtectedSessionExecuteBufferType);
         TOSTR(VAEncryptionParameterBufferType);
         TOSTR(VAEncDeltaQpPerBlockBufferType);
+        TOSTR(VAAlfBufferType);
+        TOSTR(VALmcsBufferType);
+        TOSTR(VASubPicBufferType);
+        TOSTR(VATileBufferType);
+        TOSTR(VASliceStructBufferType);
     case VABufferTypeMax:
         break;
     }
