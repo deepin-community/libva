@@ -1,3 +1,35 @@
+libva (2.22.0-3) unstable; urgency=medium
+
+  * Team upload
+  * Opt into LTO (Closes: #1015530)
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 19 Feb 2025 09:13:29 -0500
+
+libva (2.22.0-2) unstable; urgency=medium
+
+  * Team upload
+  * Enable all hardening flags
+  * debian/gbp.conf: remove unnecessary option
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Mon, 10 Feb 2025 16:57:01 -0500
+
+libva (2.22.0-1) unstable; urgency=medium
+
+  * New upstream version 2.22.0
+  * debian/control: Add new driver ABI
+
+ -- Sebastian Ramacher <sramacher@debian.org>  Thu, 04 Jul 2024 19:49:12 +0200
+
+libva (2.21.0-1) unstable; urgency=medium
+
+  * New upstream version 2.21.0
+  * debian/control:
+    - Bump Standards-Version
+    - Add new driver ABI
+  * debian/libva2.symbols: Add new symbols
+
+ -- Sebastian Ramacher <sramacher@debian.org>  Sun, 05 May 2024 19:00:10 +0200
+
 libva (2.20.0-2) unstable; urgency=medium
 
   * debian/rules: Fix meson flag
