@@ -1,3 +1,12 @@
+libva (2.22.0-3deepin2) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-56438 (unknown) - va: use secure_getenv instead
+    of getenv in va_x11.c   Upstream:
+    https://github.com/intel/libva/commit/ad64eb9b616d1b66afaf4cb9f0ea0b
+    8e0ec1169c
+
+ -- deepin-ci-robot <packages@deepin.org>  Fri, 13 Nov 2026 14:08:55 +0800
+
 libva (2.22.0-3deepin1) unstable; urgency=medium
 
   * Rebuild with LTO enabled (dpkg vendor feature optimize/lto).
